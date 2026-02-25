@@ -16,6 +16,10 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
   <style>
     :root {
       /* Default - Light Theme */
@@ -179,6 +183,20 @@
       to {
         opacity: 1;
         transform: translateY(0);
+      }
+    }
+
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from {
+        transform: rotate(0deg);
+      }
+
+      to {
+        transform: rotate(360deg);
       }
     }
 
@@ -635,26 +653,61 @@
   </div>
 
   <script>
-    // 1. Ma'lumotlar Bazasini yuklash (Persistence)
+    // 0. FIREBASE KONFIGURATSIYASI
     // ---------------------------------------------------------
-    let dbUsers = JSON.parse(localStorage.getItem('hosp_users')) || [];
+    // DIQQAT: Bu yerga Firebase'dan olgan kodingizni qo'ying!
+    const firebaseConfig = {
+      apiKey: "Sizning-API-Key",
+      authDomain: "loyiha-nomi.firebaseapp.com",
+      databaseURL: "https://loyiha-nomi-default-rtdb.firebaseio.com",
+      projectId: "loyiha-nomi",
+      storageBucket: "loyiha-nomi.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    };
 
-    let dbLogs = JSON.parse(localStorage.getItem('hosp_logs')) || [];
+    // Firebase'ni ishga tushirish
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+
+    // 1. Ma'lumotlar Bazasini yuklash (Sinxronizatsiya)
+    // ---------------------------------------------------------
+    let dbUsers = [];
+    let dbLogs = [];
+    let isDataLoaded = false;
+
+    // Firebase'dan ma'lumotlarni real vaqtda olish
+    database.ref('/').on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        dbUsers = data.users || [];
+        dbLogs = data.logs || [];
+      } else {
+        dbUsers = [];
+        dbLogs = [];
+      }
+      isDataLoaded = true;
+      init(); // Ma'lumot kelishi bilan UI ni yangilash
+    });
+
+    function saveDB() {
+      database.ref('/').set({
+        users: dbUsers,
+        logs: dbLogs
+      });
+    }
 
     // Foydalanuvchilarni butkul tozalash (Adminni ham!)
     function clearAllSystemData() {
       if (confirm("DIQQAT! Tizimdagi BARCHA ma'lumotlar, jumladan ADMIN ham o'chib ketadi. Rozimisiz?")) {
-        dbUsers = [];
-        dbLogs = [];
-        saveDB();
-        localStorage.removeItem('hosp_current_user');
-        init();
+        database.ref('/').set({
+          users: [],
+          logs: []
+        }).then(() => {
+          localStorage.removeItem('hosp_current_user');
+          init();
+        });
       }
-    }
-
-    function saveDB() {
-      localStorage.setItem('hosp_users', JSON.stringify(dbUsers));
-      localStorage.setItem('hosp_logs', JSON.stringify(dbLogs));
     }
 
     // ---------------------------------------------------------
@@ -663,12 +716,32 @@
     const app = document.getElementById('app-container');
 
     function init() {
+      if (!isDataLoaded) {
+        app.innerHTML = `<div style="display:flex; height:100vh; align-items:center; justify-content:center">
+          <div style="text-align:center">
+            <i data-lucide="loader-2" class="spin" style="width:40px; height:40px; color:var(--primary); margin-bottom:10px"></i>
+            <p>Ma'lumotlar yuklanmoqda...</p>
+          </div>
+        </div>`;
+        lucide.createIcons();
+        return;
+      }
+
       const user = JSON.parse(localStorage.getItem('hosp_current_user'));
       if (!user) {
         renderLogin();
       } else {
-        if (user.role === 'admin') renderAdmin(user);
-        else renderEmployee(user);
+        // Firebase'dagilar orasidan joriy userni yangilab qo'yamiz (role o'zgargan bo'lishi mumkin)
+        const updatedUser = dbUsers.find(u => u.id === user.id);
+        if (updatedUser) {
+          localStorage.setItem('hosp_current_user', JSON.stringify(updatedUser));
+          if (updatedUser.role === 'admin') renderAdmin(updatedUser);
+          else renderEmployee(updatedUser);
+        } else {
+          // Agar user o'chirib tashlangan bo'sa:
+          localStorage.removeItem('hosp_current_user');
+          renderLogin();
+        }
       }
       lucide.createIcons();
     }
